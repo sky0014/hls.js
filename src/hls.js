@@ -3,6 +3,7 @@
  */
 'use strict';
 
+import URLToolkit from 'url-toolkit';
 import Event from './events';
 import {ErrorTypes, ErrorDetails} from './errors';
 import PlaylistLoader from './loader/playlist-loader';
@@ -11,6 +12,7 @@ import KeyLoader from './loader/key-loader';
 
 import StreamController from  './controller/stream-controller';
 import LevelController from  './controller/level-controller';
+import ID3TrackController from './controller/id3-track-controller';
 
 import {logger, enableLogs} from './utils/logger';
 import EventEmitter from 'events';
@@ -24,10 +26,19 @@ class Hls {
   }
 
   static isSupported() {
-    window.MediaSource = window.MediaSource || window.WebKitMediaSource;
-    return (window.MediaSource &&
-            typeof window.MediaSource.isTypeSupported === 'function' &&
-            window.MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E,mp4a.40.2"'));
+    const mediaSource = window.MediaSource = window.MediaSource || window.WebKitMediaSource;
+    const sourceBuffer = window.SourceBuffer = window.SourceBuffer || window.WebKitSourceBuffer;
+    const isTypeSupported = mediaSource &&
+                            typeof mediaSource.isTypeSupported === 'function' &&
+                            mediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E,mp4a.40.2"');
+
+    // if SourceBuffer is exposed ensure its API is valid
+    // safari and old version of Chrome doe not expose SourceBuffer globally so checking SourceBuffer.prototype is impossible
+    const sourceBufferValidAPI = !sourceBuffer ||
+                                 (sourceBuffer.prototype &&
+                                 typeof sourceBuffer.prototype.appendBuffer === 'function' &&
+                                 typeof sourceBuffer.prototype.remove === 'function');
+    return isTypeSupported && sourceBufferValidAPI;
   }
 
   static get Events() {
@@ -89,6 +100,16 @@ class Hls {
     this.off = observer.off.bind(observer);
     this.trigger = observer.trigger.bind(observer);
 
+    // core controllers and network loaders
+    const abrController = this.abrController = new config.abrController(this);
+    const bufferController  = new config.bufferController(this);
+    const capLevelController = new config.capLevelController(this);
+    const fpsController = new config.fpsController(this);
+    const playListLoader = new PlaylistLoader(this);
+    const fragmentLoader = new FragmentLoader(this);
+    const keyLoader = new KeyLoader(this);
+    const id3TrackController = new ID3TrackController(this);
+
     // network controllers
     const levelController = this.levelController = new LevelController(this);
     const streamController = this.streamController = new StreamController(this);
@@ -99,20 +120,9 @@ class Hls {
     if (Controller) {
       networkControllers.push(new Controller(this));
     }
-
     this.networkControllers = networkControllers;
 
-    // core controllers and network loaders
-    // hls.abrController is referenced in levelController, this would need to be fixed
-    const abrController = this.abrController = new config.abrController(this);
-    const bufferController  = new config.bufferController(this);
-    const capLevelController = new config.capLevelController(this);
-    const fpsController = new config.fpsController(this);
-    const playListLoader = new PlaylistLoader(this);
-    const fragmentLoader = new FragmentLoader(this);
-    const keyLoader = new KeyLoader(this);
-
-    let coreComponents = [ playListLoader, fragmentLoader, keyLoader, abrController, bufferController, capLevelController, fpsController ];
+    let coreComponents = [ playListLoader, fragmentLoader, keyLoader, abrController, bufferController, capLevelController, fpsController, id3TrackController ];
 
     // optional audio track and subtitle controller
     Controller = config.audioTrackController;
@@ -161,6 +171,7 @@ class Hls {
   }
 
   loadSource(url) {
+    url = URLToolkit.buildAbsoluteURL(window.location.href, url, { alwaysNormalize: true });
     logger.log(`loadSource:${url}`);
     this.url = url;
     // when attaching to a source URL, trigger a playlist load
