@@ -111,16 +111,16 @@
 
 ### First step: setup and support
 
-First include `https://cdn.jsdelivr.net/hls.js/latest/hls.min.js` (or `/hls.js` for unminified) in your web page.
+First include `https://cdn.jsdelivr.net/npm/hls.js@latest` (or `/hls.js` for unminified) in your web page.
 
 ```html
-  <script src="https://cdn.jsdelivr.net/hls.js/latest/hls.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 ```
 
 Invoke the following static method: `Hls.isSupported()` to check whether your browser is supporting [MediaSource Extensions](http://w3c.github.io/media-source/).
 
 ```html
-  <script src="https://cdn.jsdelivr.net/hls.js/latest/hls.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
     if (Hls.isSupported()) {
  	    console.log("hello hls.js!");
@@ -137,7 +137,7 @@ Let's
    - bind video element to this HLS object
 
 ```html
-  <script src="https://cdn.jsdelivr.net/hls.js/latest/hls.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
   <video id="video"></video>
   <script>
@@ -159,7 +159,7 @@ Let's
 You need to provide manifest URL as below:
 
 ```html
-  <script src="https://cdn.jsdelivr.net/hls.js/latest/hls.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
   <video id="video"></video>
   <script>
@@ -349,7 +349,7 @@ This configuration will be applied by default to all instances.
 
 (default: `false`)
 
-  - if set to true, the adaptive algorithm with limit levels usable in auto-quality by the HTML video element dimensions (width and height)
+  - if set to true, the adaptive algorithm with limit levels usable in auto-quality by the HTML video element dimensions (width and height). If dimensions between multiple levels are equal, the cap is chosen as the level with the greatest bandwidth.
   - if set to false, levels will not be limited. All available levels could be used in auto-quality mode taking only bandwidth into consideration.
 
 ### `debug`
@@ -696,6 +696,40 @@ Note: This will overwrite the default `loader`, as well as your own loader funct
     // See `loader` for details.
   }
 ```
+
+if you want to just make slight adjustements to existing loader implementation, you can also eventually override it, see an example below :
+```js
+
+// special playlist post processing function
+function process(playlist) {
+  return playlist;
+}
+
+class pLoader extends Hls.DefaultConfig.loader {
+
+  constructor(config) {
+    super(config);
+    var load = this.load.bind(this);
+    this.load = function(context, config, callbacks) {
+      if(context.type == 'manifest') {
+        var onSuccess = callbacks.onSuccess;
+        callbacks.onSuccess = function(response, stats, context) {
+          response.data = process(response.data);
+          onSuccess(response,stats,context);
+        }
+      }
+      load(context,config,callbacks);
+    };
+  }
+}
+
+  var hls = new Hls({
+    pLoader : pLoader,
+  });
+
+```
+
+
 
 ### `xhrSetup`
 
