@@ -7,8 +7,7 @@ import BufferHelper from '../helper/buffer-helper';
 import Demuxer from '../demux/demuxer';
 import Event from '../events';
 import EventHandler from '../event-handler';
-import LevelHelper from '../helper/level-helper';
-import TimeRanges from '../utils/timeRanges';
+import * as LevelHelper from '../helper/level-helper';import TimeRanges from '../utils/timeRanges';
 import {ErrorTypes, ErrorDetails} from '../errors';
 import {logger} from '../utils/logger';
 
@@ -335,6 +334,7 @@ class StreamController extends EventHandler {
         if (media && media.readyState && media.duration > liveSyncPosition) {
           media.currentTime = liveSyncPosition;
         }
+        this.nextLoadPosition = liveSyncPosition;
     }
 
     // if end of buffer greater than live edge, don't load any fragment
@@ -357,10 +357,23 @@ class StreamController extends EventHandler {
          even if SN are not synchronized between playlists, loading this frag will help us
          compute playlist sliding and find the right one after in case it was not the right consecutive one */
       if (fragPrevious) {
-        var targetSN = fragPrevious.sn + 1;
+        const targetSN = fragPrevious.sn + 1;
         if (targetSN >= levelDetails.startSN && targetSN <= levelDetails.endSN) {
-          frag = fragments[targetSN - levelDetails.startSN];
-          logger.log(`live playlist, switching playlist, load frag with next SN: ${frag.sn}`);
+          const fragNext = fragments[targetSN - levelDetails.startSN];
+          if (fragPrevious.cc === fragNext.cc) {
+            frag = fragNext;
+            logger.log(`live playlist, switching playlist, load frag with next SN: ${frag.sn}`);
+          }
+        }
+        // next frag SN not available (or not with same continuity counter)
+        // look for a frag sharing the same CC
+        if (!frag) {
+          frag = BinarySearch.search(fragments, function(frag) {
+            return fragPrevious.cc - frag.cc;
+          });
+          if (frag) {
+            logger.log(`live playlist, switching playlist, load frag with same CC: ${frag.sn}`);
+          }
         }
       }
       if (!frag) {
@@ -462,7 +475,8 @@ class StreamController extends EventHandler {
               }
               frag = prevFrag;
               frag.backtracked = true;
-            } else {
+            } else if (curSNIdx) {
+              // can't backtrack on very first fragment
               frag = null;
             }
           }
@@ -709,8 +723,10 @@ class StreamController extends EventHandler {
             fragCurrent.loader.abort();
           }
           this.fragCurrent = null;
-          // flush position is the start position of this new buffer
-          this.flushMainBuffer(nextBufferedFrag.startPTS , Number.POSITIVE_INFINITY);
+          // start flush position is the start PTS of next buffered frag.
+          // we use frag.naxStartPTS which is max(audio startPTS, video startPTS).
+          // in case there is a small PTS Delta between audio and video, using maxStartPTS avoids flushing last samples from current fragment
+          this.flushMainBuffer(nextBufferedFrag.maxStartPTS , Number.POSITIVE_INFINITY);
         }
       }
     }
